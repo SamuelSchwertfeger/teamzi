@@ -24,14 +24,15 @@ Nothing. It is a single program (Rust, about 160 KB on Windows, under 2 MB of RA
 
 ## Install
 
-Download the file for your system from the [latest release](https://github.com/SamuelSchwertfeger/teamzi/releases/latest), or build it (see Build). `SHA256SUMS` in the release lets you check the download.
+Download the file for your system from the [latest release](https://github.com/SamuelSchwertfeger/teamzi/releases/latest), or build it (see Build). To check the download, put `SHA256SUMS` from the release next to it and run `sha256sum -c --ignore-missing SHA256SUMS` (macOS: `shasum -a 256 -c --ignore-missing SHA256SUMS`; Windows PowerShell: compare `Get-FileHash teamzi-x86_64-windows.exe` with the line in the file).
 
 - **Windows:** `teamzi-x86_64-windows.exe`. Double-click it. The exe isn't signed, so SmartScreen may warn about an unknown publisher: More info > Run anyway.
 - **Linux:** `teamzi-x86_64-linux`, a static binary for any x86_64 distro. It needs teams-for-linux: follow [Linux setup](#setup-once).
-- **macOS:** `teamzi-aarch64-macos` (Apple silicon) or `teamzi-x86_64-macos` (Intel). It isn't signed, so clear the download quarantine, then install it:
+- **macOS:** `teamzi-aarch64-macos` (Apple silicon) or `teamzi-x86_64-macos` (Intel). It isn't signed, so clear the download quarantine, then install it (on an Intel Mac use the `x86_64` name):
 
   ```
   xattr -d com.apple.quarantine teamzi-aarch64-macos
+  sudo mkdir -p /usr/local/bin
   sudo install -m755 teamzi-aarch64-macos /usr/local/bin/teamzi
   ```
 
@@ -111,7 +112,7 @@ Because of that, the Linux version never fakes key presses. That also means no r
    install -Dm755 target/release/teamzi ~/.local/bin/teamzi
    ```
 
-4. Run `teamzi` in a terminal and go through setup.
+4. Run `teamzi` in a terminal and go through setup. If it says "command not found", `~/.local/bin` isn't on your PATH: add it in your shell's config (fish: `fish_add_path ~/.local/bin`), or run `~/.local/bin/teamzi`.
 
 ### Check it works
 

@@ -36,8 +36,10 @@ jobs:
 
       - name: Toolchain
         run: |
-          rustup toolchain install stable --profile minimal --component clippy,rustfmt
-          rustup default stable
+          # Pinned: the Windows build uses unstable -Z flags and clippy runs with
+          # -D warnings, so a new stable could break a release. Bump on purpose.
+          rustup toolchain install 1.99.0 --profile minimal --component clippy,rustfmt
+          rustup default 1.99.0
 
       # rustfmt reads the source, not a target, so once is enough.
       - name: Format
@@ -145,8 +147,13 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           if [ "$GITHUB_REF_TYPE" = tag ]; then
-            gh release create "$GITHUB_REF_NAME" dist/* \
-              --title "$GITHUB_REF_NAME" --generate-notes
+            # A re-run after a partial publish refreshes the assets instead of failing.
+            if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+              gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+            else
+              gh release create "$GITHUB_REF_NAME" dist/* \
+                --title "$GITHUB_REF_NAME" --generate-notes
+            fi
           else
             gh release delete dev-latest --cleanup-tag --yes 2>/dev/null || true
             gh release create dev-latest dist/* --prerelease --target "$GITHUB_SHA" \
