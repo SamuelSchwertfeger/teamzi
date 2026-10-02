@@ -1,0 +1,15 @@
+[package]
+name = "teamzi"
+version = "0.1.0"
+edition = "2024"
+description = "Keeps Microsoft Teams presence green while you are away from the keyboard."
+
+# No dependencies: the standard library plus a few OS calls declared by hand in src/sys_*.rs.
+
+# Smallest release exe: size-optimized, whole-program optimized, no unwinding code, symbols stripped.
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
