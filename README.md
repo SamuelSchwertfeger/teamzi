@@ -1,6 +1,8 @@
 # Teamzi
 
-Keeps Microsoft Teams presence green while you are away from the keyboard. ASCII TUI with a first-run wizard. Windows (tested), Linux (with teams-for-linux) and macOS (untested).
+Keeps Microsoft Teams presence green while you are away from the keyboard. ASCII TUI with a first-run wizard.
+
+Tested on Windows. Linux (with teams-for-linux) and macOS builds are included but **unverified**: they build and pass CI, but nobody has confirmed them on a real machine yet. If you try one, please [comment on issue #2](https://github.com/SamuelSchwertfeger/teamzi/issues/2) whether it worked or not.
 
 ## Disclaimer
 
@@ -20,6 +22,19 @@ Nothing. It is a single program (Rust, about 160 KB on Windows, under 2 MB of RA
 | Keeps the machine awake with | `SetThreadExecutionState` | `systemd-inhibit` | `caffeinate` |
 | Other programs it runs (all come with the OS) | `ms-teams.exe` | `busctl`, `systemd-inhibit`, `tail`, `xdg-open`, `xdg-mime`, `stty` | `caffeinate`, `open`, `lsappinfo`, `stty` |
 
+## Install
+
+Download the file for your system from the [latest release](https://github.com/SamuelSchwertfeger/teamzi/releases/latest), or build it (see Build). `SHA256SUMS` in the release lets you check the download.
+
+- **Windows:** `teamzi-x86_64-windows.exe`. Double-click it. The exe isn't signed, so SmartScreen may warn about an unknown publisher: More info > Run anyway.
+- **Linux:** `teamzi-x86_64-linux`, a static binary for any x86_64 distro. It needs teams-for-linux: follow [Linux setup](#setup-once).
+- **macOS:** `teamzi-aarch64-macos` (Apple silicon) or `teamzi-x86_64-macos` (Intel). It isn't signed, so clear the download quarantine, then install it:
+
+  ```
+  xattr -d com.apple.quarantine teamzi-aarch64-macos
+  sudo install -m755 teamzi-aarch64-macos /usr/local/bin/teamzi
+  ```
+
 ## Use
 
 Run `teamzi` in a terminal (on Windows, double-click it). The first run is a short setup: ground rules, when to keep you green (always or work hours), and whether to start at login.
@@ -34,9 +49,9 @@ Caveat: many work PCs lock when the screen turns off, and Teams shows Away while
 
 ## Windows
 
-Download or build `teamzi.exe` and run it. Windows 10/11, new Teams. Tested: kept green 6+ hours unattended.
+Download `teamzi-x86_64-windows.exe` (see Install) or build it, and run it. Windows 10/11, new Teams. Tested: kept green 6+ hours unattended.
 
-## Linux
+## Linux (unverified)
 
 **Most common setup:** a work laptop or desktop running KDE Plasma or GNOME, with Teams in the **teams-for-linux** desktop app. That is the setup this is built for.
 
@@ -82,7 +97,13 @@ Because of that, the Linux version never fakes key presses. That also means no r
 
    Restart teams-for-linux. teamzi reads the same config file, so it finds the state file on its own.
 
-3. Build teamzi (no download beyond the Rust toolchain; no crates):
+3. Install teamzi. Download `teamzi-x86_64-linux` from the [latest release](https://github.com/SamuelSchwertfeger/teamzi/releases/latest), then:
+
+   ```
+   install -Dm755 teamzi-x86_64-linux ~/.local/bin/teamzi
+   ```
+
+   Or build it (no download beyond the Rust toolchain; no crates):
 
    ```
    sudo pacman -S rust
@@ -112,11 +133,11 @@ If Teams still goes Away after a few minutes: teams-for-linux issue #2077 report
 
 `teamzi send <email> <message>` opens the chat with the message typed in (in teams-for-linux when it handles `msteams:` links, else in the browser) and stops there: **you press Enter**. On Wayland no program can check which window is in front, so it never presses Enter for you.
 
-## macOS (untested)
+## macOS (unverified)
 
-Written against Apple's documented APIs but not yet run on a Mac. If you try it, please report back.
+Written against Apple's documented APIs and built in CI, but not yet run on a Mac. If you try it, please [comment on issue #2](https://github.com/SamuelSchwertfeger/teamzi/issues/2).
 
-- Build: install Rust (`brew install rust` or rustup), then `cargo build --release`.
+- Install: see Install above, or build it: install Rust (`brew install rust` or rustup), then `cargo build --release`.
 - Run `teamzi` in Terminal. Key presses need the **Accessibility** permission for the terminal app: System Settings > Privacy & Security > Accessibility > add Terminal (or iTerm). Without it the dashboard says so.
 - It taps F18 (on no laptop keyboard, bound to nothing; F15 would dim the screen) and runs `caffeinate` while keeping you green. Screens-off mode is not available.
 - Teams status line: read from new Teams' log in `~/Library/Group Containers/UBF8T346G9.com.microsoft.teams/Library/Application Support/Logs` if it is there.
