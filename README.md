@@ -6,7 +6,7 @@ Tested on Windows. Linux (with teams-for-linux) and macOS builds are included bu
 
 ## Disclaimer
 
-At your own risk. This simulates activity. Employers can detect it and some have fired people for it. You accept responsibility.
+At your own risk. This simulates activity. Employers can detect it. You accept responsibility.
 
 While keeping green with the screens on (the default), your screen will NOT auto-lock. Anyone at the machine can use it.
 
