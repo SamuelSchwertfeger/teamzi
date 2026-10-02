@@ -25,19 +25,21 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            asset: teamzi-x86_64-linux
+            name: linux
           - os: macos-latest
-            asset: teamzi-aarch64-macos
+            name: macos
           - os: windows-latest
-            asset: teamzi-x86_64-windows.exe
+            name: windows
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
 
       - name: Toolchain
         run: |
-          rustup toolchain install stable --profile minimal --component clippy,rustfmt
-          rustup default stable
+          # Pinned: the Windows build uses unstable -Z flags and clippy runs with
+          # -D warnings, so a new stable could break a release. Bump on purpose.
+          rustup toolchain install 1.99.0 --profile minimal --component clippy,rustfmt
+          rustup default 1.99.0
 
       # rustfmt reads the source, not a target, so once is enough.
       - name: Format
@@ -59,46 +61,58 @@ jobs:
           rustup toolchain install 1.88 --profile minimal
           cargo +1.88 check --locked
 
-      - name: Build release binary
-        if: runner.os != 'Windows'
-        run: cargo build --locked --release
-
-      # The shipped Windows exe is built smaller (~160 KB) by rebuilding std for
-      # size. The gnu target imports only system DLLs, so it needs no VC++ runtime.
-      - name: Build small Windows binary
-        if: runner.os == 'Windows'
-        shell: bash
-        run: |
-          rustup target add x86_64-pc-windows-gnu
-          rustup component add rust-src
-          RUSTC_BOOTSTRAP=1 RUSTFLAGS="-Zunstable-options -Cpanic=immediate-abort -Zlocation-detail=none -Zfmt-debug=none" \
-            cargo build --release --target x86_64-pc-windows-gnu -Z build-std=std,panic_abort
-
-      - name: Package
+      - name: Build release binaries
         shell: bash
         run: |
           mkdir dist
           case "$RUNNER_OS" in
-            Windows) cp target/x86_64-pc-windows-gnu/release/teamzi.exe "dist/${{ matrix.asset }}" ;;
-            *)       cp target/release/teamzi "dist/${{ matrix.asset }}" ;;
+            Linux)
+              # Static (musl): runs on any x86_64 Linux whatever its glibc version.
+              rustup target add x86_64-unknown-linux-musl
+              cargo build --locked --release --target x86_64-unknown-linux-musl
+              cp target/x86_64-unknown-linux-musl/release/teamzi dist/teamzi-x86_64-linux
+              ;;
+            macOS)
+              rustup target add aarch64-apple-darwin x86_64-apple-darwin
+              cargo build --locked --release --target aarch64-apple-darwin
+              cargo build --locked --release --target x86_64-apple-darwin
+              cp target/aarch64-apple-darwin/release/teamzi dist/teamzi-aarch64-macos
+              cp target/x86_64-apple-darwin/release/teamzi dist/teamzi-x86_64-macos
+              ;;
+            Windows)
+              # ~160 KB instead of ~330 KB: std rebuilt for size. The gnu target
+              # imports only system DLLs, so it needs no VC++ runtime.
+              rustup target add x86_64-pc-windows-gnu
+              rustup component add rust-src
+              RUSTC_BOOTSTRAP=1 RUSTFLAGS="-Zunstable-options -Cpanic=immediate-abort -Zlocation-detail=none -Zfmt-debug=none" \
+                cargo build --release --target x86_64-pc-windows-gnu -Z build-std=std,panic_abort
+              cp target/x86_64-pc-windows-gnu/release/teamzi.exe dist/teamzi-x86_64-windows.exe
+              ;;
           esac
+          ls -l dist
 
       # No terminal in CI, so only the non-TUI argument paths are exercised:
-      # a bad "send" prints its usage, an unknown command exits 2.
+      # a bad "send" prints its usage, an unknown command exits 2. The Intel
+      # macOS binary is skipped (the runner is Apple silicon).
       - name: Smoke test
         shell: bash
         run: |
-          bin="dist/${{ matrix.asset }}"
-          out=$("$bin" send 2>&1 || true)
-          echo "$out"
-          echo "$out" | grep -q "usage: teamzi send" || { echo "missing send usage" >&2; exit 1; }
-          code=0; "$bin" bogus >/dev/null 2>&1 || code=$?
-          [ "$code" = 2 ] || { echo "unknown command should exit 2, got $code" >&2; exit 1; }
+          for bin in dist/*; do
+            case "$bin" in *x86_64-macos) continue ;; esac
+            echo "== $bin"
+            out=$("$bin" send 2>&1 || true)
+            echo "$out" | grep -q "usage: teamzi send" || { echo "missing send usage: $out" >&2; exit 1; }
+            code=0; "$bin" bogus >/dev/null 2>&1 || code=$?
+            [ "$code" = 2 ] || { echo "unknown command should exit 2, got $code" >&2; exit 1; }
+          done
+          if [ "$RUNNER_OS" = Linux ]; then
+            ! readelf -lW dist/teamzi-x86_64-linux | grep -q INTERP || { echo "linux binary is not static" >&2; exit 1; }
+          fi
 
       - uses: actions/upload-artifact@v7
         with:
-          name: ${{ matrix.asset }}
-          path: dist/${{ matrix.asset }}
+          name: teamzi-${{ matrix.name }}
+          path: dist/
           if-no-files-found: error
 
   # dev     -> rolling "dev-latest" pre-release, replaced on every push to dev
@@ -133,8 +147,13 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           if [ "$GITHUB_REF_TYPE" = tag ]; then
-            gh release create "$GITHUB_REF_NAME" dist/* \
-              --title "$GITHUB_REF_NAME" --generate-notes
+            # A re-run after a partial publish refreshes the assets instead of failing.
+            if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+              gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+            else
+              gh release create "$GITHUB_REF_NAME" dist/* \
+                --title "$GITHUB_REF_NAME" --generate-notes
+            fi
           else
             gh release delete dev-latest --cleanup-tag --yes 2>/dev/null || true
             gh release create dev-latest dist/* --prerelease --target "$GITHUB_SHA" \
