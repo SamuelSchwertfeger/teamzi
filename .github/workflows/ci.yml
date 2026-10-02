@@ -1,0 +1,143 @@
+name: CI
+
+on:
+  push:
+    branches: [main, dev]
+    tags: ["v*"]
+  pull_request:
+    branches: [main, dev]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            asset: teamzi-x86_64-linux
+          - os: macos-latest
+            asset: teamzi-aarch64-macos
+          - os: windows-latest
+            asset: teamzi-x86_64-windows.exe
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --component clippy,rustfmt
+          rustup default stable
+
+      # rustfmt reads the source, not a target, so once is enough.
+      - name: Format
+        if: runner.os == 'Linux'
+        run: cargo fmt --check
+
+      # Per OS: clippy and the tests each compile that platform's src/sys_*.rs,
+      # which are the parts that only exist behind a cfg.
+      - name: Lint
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test --locked
+
+      # let-chains (src/main.rs) need 1.88; edition 2024 needs 1.85.
+      - name: Minimum supported Rust
+        if: runner.os == 'Linux'
+        run: |
+          rustup toolchain install 1.88 --profile minimal
+          cargo +1.88 check --locked
+
+      - name: Build release binary
+        if: runner.os != 'Windows'
+        run: cargo build --locked --release
+
+      # The shipped Windows exe is built smaller (~160 KB) by rebuilding std for
+      # size. The gnu target imports only system DLLs, so it needs no VC++ runtime.
+      - name: Build small Windows binary
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          rustup target add x86_64-pc-windows-gnu
+          rustup component add rust-src
+          RUSTC_BOOTSTRAP=1 RUSTFLAGS="-Zunstable-options -Cpanic=immediate-abort -Zlocation-detail=none -Zfmt-debug=none" \
+            cargo build --release --target x86_64-pc-windows-gnu -Z build-std=std,panic_abort
+
+      - name: Package
+        shell: bash
+        run: |
+          mkdir dist
+          case "$RUNNER_OS" in
+            Windows) cp target/x86_64-pc-windows-gnu/release/teamzi.exe "dist/${{ matrix.asset }}" ;;
+            *)       cp target/release/teamzi "dist/${{ matrix.asset }}" ;;
+          esac
+
+      # No terminal in CI, so only the non-TUI argument paths are exercised:
+      # a bad "send" prints its usage, an unknown command exits 2.
+      - name: Smoke test
+        shell: bash
+        run: |
+          bin="dist/${{ matrix.asset }}"
+          out=$("$bin" send 2>&1 || true)
+          echo "$out"
+          echo "$out" | grep -q "usage: teamzi send" || { echo "missing send usage" >&2; exit 1; }
+          code=0; "$bin" bogus >/dev/null 2>&1 || code=$?
+          [ "$code" = 2 ] || { echo "unknown command should exit 2, got $code" >&2; exit 1; }
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.asset }}
+          path: dist/${{ matrix.asset }}
+          if-no-files-found: error
+
+  # dev     -> rolling "dev-latest" pre-release, replaced on every push to dev
+  # v* tags -> a normal release
+  release:
+    needs: build
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/dev' || github.ref_type == 'tag')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+
+      - name: Collect and checksum
+        run: |
+          mkdir dist
+          find artifacts -type f -exec cp {} dist/ \;
+          version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            [ "v$version" = "$GITHUB_REF_NAME" ] || { echo "tag $GITHUB_REF_NAME does not match Cargo.toml version $version" >&2; exit 1; }
+          fi
+          (cd dist && sha256sum ./* > SHA256SUMS)
+          cat dist/SHA256SUMS
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            gh release create "$GITHUB_REF_NAME" dist/* \
+              --title "$GITHUB_REF_NAME" --generate-notes
+          else
+            gh release delete dev-latest --cleanup-tag --yes 2>/dev/null || true
+            gh release create dev-latest dist/* --prerelease --target "$GITHUB_SHA" \
+              --title "Development build" \
+              --notes "Latest build of the dev branch (${GITHUB_SHA::7}). Untested; replaced on every push to dev."
+          fi
