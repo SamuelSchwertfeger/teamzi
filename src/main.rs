@@ -58,6 +58,46 @@ fn paint(style: &str, s: &str) -> String {
     format!("{style}{s}{RESET}")
 }
 
+// The frame and logo shade from dark blue (left) to dark purple (right).
+const FROM: (u8, u8, u8) = (30, 58, 160);
+const TO: (u8, u8, u8) = (100, 30, 160);
+
+/// 24-bit colour: Windows 10+ consoles have it; elsewhere the terminal says so in COLORTERM
+/// (macOS Terminal.app before 26 doesn't, and gets the nearest of the 256 standard colours).
+fn truecolor() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| cfg!(windows) || std::env::var("COLORTERM").is_ok_and(|v| v == "truecolor" || v == "24bit"))
+}
+
+/// Foreground colour for column i of n along the gradient.
+fn hue(i: usize, n: usize) -> String {
+    let d = n.saturating_sub(1).max(1);
+    let i = i.min(d);
+    let mix = |a: u8, b: u8| ((usize::from(a) * (d - i) + usize::from(b) * i) / d) as u8;
+    let (r, g, b) = (mix(FROM.0, TO.0), mix(FROM.1, TO.1), mix(FROM.2, TO.2));
+    if truecolor() {
+        format!("\x1b[38;2;{r};{g};{b}m")
+    } else {
+        // nearest level of the xterm colour cube (0, 95, 135, 175, 215, 255)
+        let q = |v: u8| [48, 115, 155, 195, 235].iter().filter(|&&c| v >= c).count();
+        format!("\x1b[38;5;{}m", 16 + 36 * q(r) + 6 * q(g) + q(b))
+    }
+}
+
+/// Paints s along the gradient: its first column is column `start` of n.
+fn gradient(s: &str, start: usize, n: usize) -> String {
+    let mut o = String::new();
+    for (k, c) in s.chars().enumerate() {
+        let _ = write!(o, "{}{c}", hue(start + k, n));
+    }
+    o + RESET
+}
+
+/// One line of the logo, bold, shaded across its own width.
+fn logo(line: &str) -> String {
+    format!("{BOLD}{}", gradient(line, 0, width(LOGO[0])))
+}
+
 /// A key cap, like  P
 fn keycap(k: char) -> String {
     paint(KEYCAP, &format!(" {k} "))
@@ -83,12 +123,13 @@ struct Frame(String);
 impl Frame {
     fn rule(&mut self, left: &str, right: &str) {
         let bar = format!("{left}{}{right}", "─".repeat(WIDTH + 2));
-        let _ = writeln!(self.0, "  {}\x1b[K", paint(DIM, &bar)); // K: clear the rest of the line
+        let _ = writeln!(self.0, "  {}\x1b[K", gradient(&bar, 0, WIDTH + 4)); // K: clear the rest of the line
     }
 
     fn row(&mut self, s: &str) {
-        let (side, pad) = (paint(DIM, "│"), WIDTH.saturating_sub(width(s)));
-        let _ = writeln!(self.0, "  {side} {s}{RESET}{:pad$} {side}\x1b[K", "");
+        let (left, right) = (gradient("│", 0, WIDTH + 4), gradient("│", WIDTH + 3, WIDTH + 4));
+        let pad = WIDTH.saturating_sub(width(s));
+        let _ = writeln!(self.0, "  {left} {s}{RESET}{:pad$} {right}\x1b[K", "");
     }
 
     fn blank(&mut self) {
@@ -293,10 +334,10 @@ impl App {
 
 fn header(f: &mut Frame, face: &str) {
     f.rule("╭", "╮");
-    f.row(&paint(GREEN, LOGO[0]));
+    f.row(&logo(LOGO[0]));
     let pad = WIDTH - width(LOGO[1]) - width(face);
-    f.row(&format!("{}{:pad$}{}", paint(GREEN, LOGO[1]), "", paint(BOLD, face)));
-    f.row(&paint(GREEN, LOGO[2]));
+    f.row(&format!("{}{:pad$}{}", logo(LOGO[1]), "", paint(BOLD, face)));
+    f.row(&logo(LOGO[2]));
     f.rule("├", "┤");
 }
 
@@ -397,7 +438,7 @@ fn draw_wizard(f: &mut Frame, a: &App, now: i64) {
             steps(f, 1, "Ground rules");
             f.row(&paint(YELLOW, "▲ Use at your own risk."));
             f.row(sys::NUDGE_HOW);
-            f.row("Employers can detect this; some have fired people for it.");
+            f.row("Employers can detect this.");
             f.row("While I'm on, your screen won't lock by itself (unless S).");
         }
         Screen::Schedule => {
@@ -815,6 +856,14 @@ mod tests {
         }
         f.rule("╰", "╯");
         f.0
+    }
+
+    #[test]
+    fn gradient_shades_without_taking_space() {
+        assert_eq!(width(&gradient("╭──╮", 0, 4)), 4);
+        assert_ne!(hue(0, WIDTH + 4), hue(WIDTH + 3, WIDTH + 4));
+        assert_eq!(hue(9, 4), hue(3, 4)); // past the end stays on the last colour
+        let _ = hue(0, 0); // empty width: no division by zero
     }
 
     /// Every screen in every state fits the 68-column box. SHOW=1 cargo test -- --nocapture prints them.
