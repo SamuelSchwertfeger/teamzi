@@ -12,7 +12,7 @@ While keeping green with the screens on (the default), your screen will NOT auto
 
 ## What it installs
 
-Nothing. It is a single program (Rust, about 160 KB on Windows, under 2 MB of RAM, no libraries). It talks only to the local machine and the local Teams app: no network, no Graph API, nothing connects to your employer's Microsoft tenant.
+Nothing. It is a single program (Rust, about 165 KB on Windows, under 2 MB of RAM, no libraries). It talks only to the local machine and the local Teams app: no network, no Graph API, nothing connects to your employer's Microsoft tenant.
 
 | | Windows | Linux | macOS |
 |---|---|---|---|
@@ -39,6 +39,8 @@ Download the file for your system from the [latest release](https://github.com/S
 ## Use
 
 Run `teamzi` in a terminal (on Windows, double-click it). The first run is a short setup: ground rules, when to keep you green (always or work hours), and whether to start at login.
+
+The frame and logo shade from dark blue to dark purple. That uses 24-bit colour on Windows and in terminals that set `COLORTERM=truecolor`; other terminals get the nearest of their 256 colours.
 
 Dashboard keys: `P` pause/resume, `N` nudge now, `S` screens on/off, `W` rerun setup, `Q` quit. Keeping runs only while the app is open; quitting stops it and undoes everything it set.
 
@@ -163,7 +165,7 @@ cargo build --release      # target/release/teamzi(.exe)
 cargo test --release
 ```
 
-The Windows release exe is built smaller (about 160 KB instead of 330 KB) by rebuilding the standard library for size. That uses nightly-only flags on the stable compiler and needs `rustup component add rust-src`:
+The Windows release exe is built smaller (about 165 KB instead of 330 KB) by rebuilding the standard library for size. That uses nightly-only flags on the stable compiler and needs `rustup component add rust-src`:
 
 ```
 RUSTC_BOOTSTRAP=1 RUSTFLAGS="-Zunstable-options -Cpanic=immediate-abort -Zlocation-detail=none -Zfmt-debug=none" \
